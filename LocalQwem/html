@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qwen2.5-Coder — локальный чат</title>
+<style>
+:root{
+  --bg:#2b3238;--panel:#343c43;--line:#47525b;--text:#dfe6ea;--muted:#9aa8b2;--accent:#a9c4d6;--on-accent:#1f262b;
+  --user:var(--line);
+  --bad:#d49a9a;
+}
+*{box-sizing:border-box;border-radius:0;outline:none}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.6 "Cascadia Code",Consolas,"Courier New",monospace;display:flex}
+::selection{background:var(--accent);color:var(--on-accent)}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line)}::-webkit-scrollbar-track{background:transparent}
+aside{width:260px;background:var(--panel);display:flex;flex-direction:column;padding:12px;gap:8px}
+aside h1{font-size:14px;margin:4px 6px 8px;color:var(--accent);font-weight:600}
+aside h1::before{content:"> "}
+button{background:var(--accent);color:var(--on-accent);border:0;padding:8px 12px;cursor:pointer;font:inherit}
+button.ghost{background:var(--line);color:var(--text)}
+button:hover{filter:brightness(1.1)}
+button:disabled{opacity:.5;cursor:default}
+#chats{flex:1;overflow:auto;display:flex;flex-direction:column;gap:4px}
+.chat{padding:7px 10px;cursor:pointer;color:var(--muted);display:flex;justify-content:space-between;gap:6px;font-size:13px}
+.chat span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat:hover,.chat.active{background:var(--line);color:var(--text)}
+.chat b{font-weight:400;opacity:.5}
+.chat b:hover{opacity:1;color:var(--bad)}
+main{flex:1;display:flex;flex-direction:column;min-width:0}
+header{padding:10px 18px;display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px}
+#dot{width:9px;height:9px;background:var(--line)}
+#dot.ok{background:var(--accent)}
+#dot.bad{background:var(--bad)}
+header .sp{flex:1}
+#log{flex:1;overflow:auto;padding:12px 0}
+.msg{max-width:860px;margin:0 auto;padding:10px 18px;display:flex;gap:12px}
+.av{flex:none;width:30px;height:30px;display:grid;place-items:center;font-size:13px;color:var(--muted);background:var(--line)}
+.msg.assistant .av{background:var(--accent);color:var(--on-accent);font-weight:700}
+.body{min-width:0;flex:1;overflow-wrap:anywhere}
+.msg.user .body::before{content:"$ ";color:var(--accent)}
+.body p{margin:0 0 .7em}
+.body code{background:var(--panel);padding:1px 5px;font-family:inherit;font-size:13px;color:var(--accent)}
+pre{position:relative;background:var(--panel);padding:12px 14px;overflow:auto;margin:.6em 0}
+pre code{background:none;padding:0;white-space:pre;color:var(--text)}
+.lang{position:absolute;top:6px;left:12px;font-size:11px;color:var(--muted)}
+pre.has-lang{padding-top:28px}
+.copy{position:absolute;top:4px;right:4px;padding:1px 8px;font-size:12px}
+.cursor::after{content:"█";animation:b 1s steps(1) infinite;color:var(--accent)}
+@keyframes b{50%{opacity:0}}
+.stats{font-size:11px;color:var(--muted);margin-top:4px}
+footer{padding:12px 18px 18px}
+.box{max-width:860px;margin:0 auto;display:flex;gap:8px;align-items:flex-end;background:var(--panel);border:0;border-radius:28px;padding:8px 8px 8px 18px}
+.box *{border-radius:0}
+textarea{flex:1;background:transparent;border:0;color:var(--text);font:inherit;resize:none;max-height:200px;padding:6px 4px}
+textarea::placeholder{color:var(--muted);opacity:.7}
+dialog{background:var(--panel);color:var(--text);border:0;padding:20px;width:min(520px,92vw);max-height:92vh;overflow:auto;font-family:inherit}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog h3{margin:0 0 4px;color:var(--accent)}
+dialog h4{margin:18px 0 6px;font-size:13px;color:var(--accent)}
+dialog label{display:block;margin:10px 0 4px;font-size:12px;color:var(--muted)}
+dialog input,dialog textarea{width:100%;background:var(--bg);border:0;padding:8px;color:var(--text);font:inherit}
+dialog input[type=range]{padding:0;accent-color:var(--accent)}
+dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+#presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+#presets button{padding:5px 10px;font-size:12px;display:flex;align-items:center;gap:6px}
+#presets i{display:inline-block;width:10px;height:10px}
+#colorGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#colorGrid .c{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);background:var(--bg);padding:6px 8px}
+#colorGrid input[type=color]{width:38px;height:26px;padding:0;border:0;background:none;cursor:pointer}
+#colorGrid small{opacity:.7;font-size:11px}
+@media(max-width:700px){aside{display:none}#colorGrid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<aside>
+  <h1>Qwen2.5-Coder</h1>
+  <button id="newChat">[ + новый чат ]</button>
+  <div id="chats"></div>
+  <button class="ghost" id="openSettings">[ настройки ]</button>
+</aside>
+<main>
+  <header><div id="dot"></div><span id="status">проверка сервера…</span><div class="sp"></div><span id="modelName"></span></header>
+  <div id="log"></div>
+  <footer>
+    <div class="box">
+      <textarea id="input" rows="1" placeholder="Спроси что-нибудь или попроси написать код…  (Enter — отправить, Shift+Enter — перенос)"></textarea>
+      <button id="send">Отправить</button>
+    </div>
+  </footer>
+</main>
+
+<dialog id="settings">
+  <h3>Настройки</h3>
+
+  <h4 style="margin-top:10px">Цвета</h4>
+  <div id="presets"></div>
+  <div id="colorGrid"></div>
+
+  <h4>Сервер и модель</h4>
+  <label>Адрес сервера (LM Studio: http://localhost:1234/v1 · llama-server: http://localhost:8080/v1)</label>
+  <input id="sUrl">
+  <label>Модель (оставь пустым — возьмётся первая загруженная)</label>
+  <input id="sModel" placeholder="qwen2.5-coder-7b-instruct">
+  <label>Системный промпт</label>
+  <textarea id="sSystem" rows="3"></textarea>
+  <label>Температура: <span id="tv"></span></label>
+  <input type="range" id="sTemp" min="0" max="1.5" step="0.05">
+  <label>Макс. токенов ответа</label>
+  <input id="sMax" type="number" min="64" max="8192" step="64">
+  <div class="row"><button class="ghost" id="resetTheme">Сбросить цвета</button><button class="ghost" id="cancelS">Отмена</button><button id="saveS">Сохранить</button></div>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const DEF = {
+  url: 'http://localhost:1235/v1',
+  model: '',
+  system: 'Ты — Qwen, полезный ассистент и сильный программист. Отвечай на языке пользователя, код оформляй в блоках с указанием языка.',
+  temp: 0.7,
+  max: 2048
+};
+function load(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
+function save(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+/* ---------- Темы (мягкие туманные цвета) ---------- */
+const COLORS = [
+  ['bg','Фон'],['panel','Панели'],['text','Текст'],
+  ['muted','Второй текст'],['accent','Акцент'],['line','Блоки']
+];
+const PRESETS = {
+  'Туман':          {bg:'#2b3238',panel:'#343c43',text:'#dfe6ea',muted:'#9aa8b2',accent:'#a9c4d6',line:'#47525b'},
+  'Светлый туман':  {bg:'#e6ebed',panel:'#f2f5f6',text:'#3d4850',muted:'#7b8992',accent:'#7fa3b8',line:'#cbd4d9'},
+  'Лесной туман':   {bg:'#272e2b',panel:'#313a36',text:'#dbe5df',muted:'#93a69c',accent:'#a3c4b0',line:'#44514b'},
+  'Розовый туман':  {bg:'#2e2a2f',panel:'#393339',text:'#eadfe5',muted:'#a898a2',accent:'#d3adc2',line:'#4d444b'},
+  'Лаванда':        {bg:'#2a2a35',panel:'#343444',text:'#e1e0ee',muted:'#9d9bb5',accent:'#b8b0e0',line:'#484860'},
+  'Рассвет':        {bg:'#302c2c',panel:'#3b3636',text:'#eee3dc',muted:'#aa9d94',accent:'#e0bfa4',line:'#52494a'}
+};
+let savedTheme = Object.assign({}, PRESETS['Туман'], load('qwen_theme', {}));
+let theme = Object.assign({}, savedTheme);
+
+function onColor(hex){
+  const n = parseInt(hex.slice(1), 16), r = n>>16, g = (n>>8)&255, b = n&255;
+  const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+  return lum > 0.58 ? '#1f262b' : '#f4f7f8';
+}
+function applyTheme(t){
+  const r = document.documentElement.style;
+  COLORS.forEach(([k]) => r.setProperty('--' + k, t[k]));
+  r.setProperty('--on-accent', onColor(t.accent));
+}
+function buildThemeUI(){
+  $('#presets').innerHTML = '';
+  Object.entries(PRESETS).forEach(([name, p]) => {
+    const b = document.createElement('button'); b.className = 'ghost';
+    b.innerHTML = `<i style="background:${p.accent}"></i>${name}`;
+    b.onclick = () => { theme = Object.assign({}, p); applyTheme(theme); fillColors(); };
+    $('#presets').appendChild(b);
+  });
+  const g = $('#colorGrid'); g.innerHTML = '';
+  COLORS.forEach(([k, label]) => {
+    const d = document.createElement('div'); d.className = 'c';
+    d.innerHTML = `<span>${label}<br><small id="hx_${k}"></small></span><input type="color" id="cl_${k}">`;
+    g.appendChild(d);
+    d.querySelector('input').oninput = e => {
+      theme[k] = e.target.value; $('#hx_' + k).textContent = e.target.value; applyTheme(theme);
+    };
+  });
+}
+function fillColors(){
+  COLORS.forEach(([k]) => { $('#cl_' + k).value = theme[k]; $('#hx_' + k).textContent = theme[k]; });
+}
+applyTheme(theme);
+
+/* ---------- Чат ---------- */
+let cfg = Object.assign({}, DEF, load('qwen_cfg', {}));
+let chats = load('qwen_chats', []);
+let cur = null;
+let abort = null;
+
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function md(text){
+  const parts = text.split(/(```[\s\S]*?(?:```|$))/g);
+  return parts.map(p => {
+    if (p.startsWith('```')){
+      const m = p.match(/^```([^\n]*)\n?([\s\S]*?)(?:```)?$/);
+      const lang = (m[1]||'').trim(), code = m[2].replace(/\n$/,'');
+      return `<pre class="${lang?'has-lang':''}">${lang?`<span class="lang">${esc(lang)}</span>`:''}<button class="copy">Копировать</button><code>${esc(code)}</code></pre>`;
+    }
+    return p.split(/\n{2,}/).filter(x=>x.trim()).map(par =>
+      '<p>' + esc(par).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>') + '</p>'
+    ).join('');
+  }).join('');
+}
+
+function newChat(){
+  cur = { id: Date.now(), title: 'Новый чат', messages: [] };
+  chats.unshift(cur); save('qwen_chats', chats); renderChats(); renderLog();
+}
+function renderChats(){
+  const el = $('#chats'); el.innerHTML = '';
+  chats.forEach(c => {
+    const d = document.createElement('div');
+    d.className = 'chat' + (c === cur ? ' active' : '');
+    d.innerHTML = `<span>${esc(c.title)}</span><b title="Удалить">✕</b>`;
+    d.onclick = () => { cur = c; renderChats(); renderLog(); };
+    d.querySelector('b').onclick = e => {
+      e.stopPropagation();
+      chats = chats.filter(x => x !== c); save('qwen_chats', chats);
+      if (cur === c) cur = chats[0] || null;
+      if (!cur) return newChat();
+      renderChats(); renderLog();
+    };
+    el.appendChild(d);
+  });
+}
+function bubble(role, html, stats){
+  const m = document.createElement('div'); m.className = 'msg ' + role;
+  m.innerHTML = `<div class="av">${role==='user'?'Я':'Q'}</div><div class="body">${html}<div class="stats">${stats||''}</div></div>`;
+  $('#log').appendChild(m); return m.querySelector('.body');
+}
+function renderLog(){
+  $('#log').innerHTML = '';
+  if (!cur.messages.length) bubble('assistant', '<p>Привет! Я Qwen2.5-Coder, работаю локально на твоём ПК. Чем помочь?</p>');
+  cur.messages.forEach(m => bubble(m.role, m.role==='user' ? '<p>'+esc(m.content).replace(/\n/g,'<br>')+'</p>' : md(m.content)));
+  scroll();
+}
+function scroll(){ const l = $('#log'); l.scrollTop = l.scrollHeight; }
+
+$('#log').addEventListener('click', e => {
+  if (e.target.classList.contains('copy')){
+    const t = e.target.parentElement.querySelector('code').innerText;
+    navigator.clipboard.writeText(t).then(()=>{ e.target.textContent='Готово'; setTimeout(()=>e.target.textContent='Копировать',1200); });
+  }
+});
+
+async function checkServer(){
+  try{
+    const r = await fetch(cfg.url + '/models'); const j = await r.json();
+    const id = (j.data && j.data[0] && j.data[0].id) || '';
+    $('#dot').className = 'ok'; $('#status').textContent = 'сервер подключён';
+    $('#modelName').textContent = cfg.model || id;
+    if (!cfg.model) cfg._auto = id;
+  }catch(e){
+    $('#dot').className = 'bad';
+    $('#status').textContent = 'сервер недоступен — запусти LM Studio / llama-server';
+  }
+}
+
+async function send(){
+  const input = $('#input'); const text = input.value.trim();
+  if (!text || abort) return;
+  input.value = ''; input.style.height = 'auto';
+  cur.messages.push({ role: 'user', content: text });
+  if (cur.messages.length === 1) cur.title = text.slice(0, 40);
+  bubble('user', '<p>'+esc(text).replace(/\n/g,'<br>')+'</p>');
+  const body = bubble('assistant', '');
+  body.classList.add('cursor'); scroll();
+
+  abort = new AbortController(); $('#send').textContent = 'Стоп';
+  let full = '', t0 = performance.now(), n = 0;
+  try{
+    const res = await fetch(cfg.url + '/chat/completions', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, signal: abort.signal,
+      body: JSON.stringify({
+        model: cfg.model || cfg._auto || 'qwen2.5-coder-7b-instruct',
+        messages: [{role:'system', content: cfg.system}, ...cur.messages.map(m=>({role:m.role,content:m.content}))],
+        temperature: cfg.temp, max_tokens: cfg.max, stream: true
+      })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + await res.text());
+    const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '';
+    while (true){
+      const {done, value} = await reader.read(); if (done) break;
+      buf += dec.decode(value, {stream:true});
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const ln of lines){
+        if (!ln.startsWith('data:')) continue;
+        const d = ln.slice(5).trim(); if (d === '[DONE]') continue;
+        try{
+          const delta = JSON.parse(d).choices[0].delta.content;
+          if (delta){ full += delta; n++; body.innerHTML = md(full) + '<div class="stats"></div>'; scroll(); }
+        }catch(e){}
+      }
+    }
+  }catch(e){
+    if (e.name !== 'AbortError') full += (full ? '\n\n' : '') + '⚠️ Ошибка: ' + e.message;
+  }
+  body.classList.remove('cursor');
+  const sec = (performance.now() - t0) / 1000;
+  body.innerHTML = md(full || '…') + `<div class="stats">${n} ток. · ${sec.toFixed(1)} c · ${(n/sec||0).toFixed(1)} ток/с</div>`;
+  cur.messages.push({ role: 'assistant', content: full });
+  save('qwen_chats', chats); renderChats();
+  abort = null; $('#send').textContent = 'Отправить';
+}
+
+$('#send').onclick = () => abort ? abort.abort() : send();
+$('#input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); $('#send').click(); } });
+$('#input').addEventListener('input', e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; });
+$('#newChat').onclick = newChat;
+
+/* ---------- Настройки ---------- */
+const dlg = $('#settings');
+buildThemeUI();
+$('#openSettings').onclick = () => {
+  theme = Object.assign({}, savedTheme); applyTheme(theme); fillColors();
+  $('#sUrl').value = cfg.url; $('#sModel').value = cfg.model; $('#sSystem').value = cfg.system;
+  $('#sTemp').value = cfg.temp; $('#tv').textContent = cfg.temp; $('#sMax').value = cfg.max; dlg.showModal();
+};
+$('#sTemp').oninput = e => $('#tv').textContent = e.target.value;
+$('#resetTheme').onclick = () => { theme = Object.assign({}, PRESETS['Туман']); applyTheme(theme); fillColors(); };
+function closeDlg(){ applyTheme(savedTheme); dlg.close(); }
+$('#cancelS').onclick = closeDlg;
+dlg.addEventListener('cancel', () => applyTheme(savedTheme));
+$('#saveS').onclick = () => {
+  cfg = { url: $('#sUrl').value.replace(/\/$/,''), model: $('#sModel').value.trim(), system: $('#sSystem').value,
+          temp: parseFloat($('#sTemp').value), max: parseInt($('#sMax').value) || 2048 };
+  save('qwen_cfg', cfg);
+  savedTheme = Object.assign({}, theme); save('qwen_theme', savedTheme); applyTheme(savedTheme);
+  dlg.close(); checkServer();
+};
+
+if (!chats.length) newChat(); else { cur = chats[0]; renderChats(); renderLog(); }
+checkServer(); setInterval(checkServer, 10000);
+</script>
+</body>
+</html>
